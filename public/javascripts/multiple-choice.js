@@ -1,5 +1,5 @@
-define(['jquery', 'underscore', 'database'], function($, _, database){
-    var buttonTemplate = _.template( '<label class="btn btn-default <%= correct %>" id="<%= id %>"><input type="radio"><%= content %></input></label>' );
+define(['jquery', 'underscore', 'database', 'mathjax', 'tincan'], function($, _, database, MathJax, TinCan){
+    var buttonTemplate = _.template( '<label class="btn btn-default <%= correct %>" id="<%= id %>"></label>' );
 
     var answerHtml = '<div class="btn-group" style="vertical-align: bottom; ">' +
 	'<button class="btn btn-success btn-ximera-correct" data-toggle="tooltip" data-placement="top" title="Correct answer!" style="display: none">' +
@@ -18,33 +18,37 @@ define(['jquery', 'underscore', 'database'], function($, _, database){
     var createMultipleChoice = function() {
 	var multipleChoice = $(this);
 
-	multipleChoice.html( '<div><div class="btn-group-vertical" role="group" data-toggle="buttons" style="padding-right: 1em;">' + 
-		      multipleChoice.html() +
-		      '</div>' + answerHtml + '</div>' );
+	multipleChoice.wrapInner( '<div class="ximera-horizontal"><div class="btn-group-vertical" role="group" data-toggle="buttons" style="padding-right: 1em;"></div></div>' );
+	
+	$('.ximera-horizontal', multipleChoice).append( $(answerHtml) );
 
 	multipleChoice.find( ".choice" ).each( function() {
 	    var correct = '';
 	    if ($(this).hasClass( "correct" ))
 		correct = "correct";
 	    
-	    var button = $(this).replaceWith( buttonTemplate({ id: $(this).attr('id'), correct: correct, content: $(this).html() }) );
+	    var identifier = $(this).attr('id');
+	    var label = $(this);
+
+	    label.wrap( buttonTemplate({ id: identifier, correct: correct }) );
+	    label.prepend( '<input type="radio"></input>' );
 	});
 
 	multipleChoice.trigger( 'ximera:answer-needed' );
 	
 	multipleChoice.persistentData(function(event) {
-	    var state = event.data;
-
 	    multipleChoice.find( 'label').removeClass('active');
 	    
-	    if ('chosen' in state) {
-		multipleChoice.find( '#' + state['chosen'] ).addClass('active');
+	    if (multipleChoice.persistentData('chosen')) {
+		multipleChoice.find( '#' + multipleChoice.persistentData('chosen') ).addClass('active');
 		multipleChoice.find( '.btn-group button' ).removeClass('disabled');
+		multipleChoice.find( '.btn-group .btn-ximera-submit' ).addClass('pulsate');
 	    } else {
 		multipleChoice.find( '.btn-group button' ).addClass('disabled');
+		multipleChoice.find( '.btn-group .btn-ximera-submit' ).removeClass('pulsate');		
 	    }
 
-	    if (('correct' in state) && (state['correct'])) {
+	    if (multipleChoice.persistentData('correct')) {
 		multipleChoice.find( '.btn-group button' ).hide();
 		multipleChoice.find( '.btn-group .btn-ximera-correct' ).show();
 		
@@ -61,10 +65,13 @@ define(['jquery', 'underscore', 'database'], function($, _, database){
 		
 		multipleChoice.find( '.btn-group button' ).hide();
 
-		if (('checked' in state) && ('chosen' in state) && (state['checked'] === state['chosen']))
+		if ((multipleChoice.persistentData('checked') === multipleChoice.persistentData('chosen')) &&
+		    (multipleChoice.persistentData('chosen') !== undefined))
 		    multipleChoice.find( '.btn-group .btn-ximera-incorrect' ).show();
-		else
+		else {
 		    multipleChoice.find( '.btn-group .btn-ximera-submit' ).show();
+		    multipleChoice.find( '.btn-group .btn-ximera-submit' ).show();		    
+		}
 	    }
 
 	    multipleChoice.find( '.btn-ximera-submit' ).prop( 'disabled', ! multipleChoice.find( 'label' ).hasClass( 'active' ) );
@@ -77,10 +84,10 @@ define(['jquery', 'underscore', 'database'], function($, _, database){
 		
 		multipleChoice.persistentData('correct',
 					      multipleChoice.find('#' + multipleChoice.persistentData('chosen')).hasClass( 'correct' ) );
-		
-		if (multipleChoice.persistentData('correct'))
+
+		if (multipleChoice.persistentData('correct')) {
 		    multipleChoice.trigger( 'ximera:correct' );
-		else {
+		} else {
 		    var wrongAnswers = multipleChoice.persistentData('wrong');
 		    
 		    if (!wrongAnswers)
@@ -89,6 +96,9 @@ define(['jquery', 'underscore', 'database'], function($, _, database){
 		    wrongAnswers[multipleChoice.persistentData('chosen')] = true;
 		    multipleChoice.persistentData('wrong', wrongAnswers);
 		}
+
+		TinCan.answer( multipleChoice, { response: multipleChoice.persistentData('chosen'),
+						 success: multipleChoice.persistentData('correct') } );
 	    }
 	};
 	

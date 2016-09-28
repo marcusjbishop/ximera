@@ -72,18 +72,13 @@ We want to stop when the index reaches the end of the list of environments. */
       text-transform: capitalize;   /* CSS here only applies to one word, like "Theorem." or "Example." */
       font-weight: bold; 
    } 
-   /* Nested exercises should have empty labels */
-   div.@{nameOfClass}>div.@{nameOfClass}::before{
-     content:"";
+   .@{nameOfClass} ul{
+       padding-left: 1em;
    }
 
-   /* Nested exercises should increment a dummy counter
-    in order to avoid incrementing the real counter.
-    Note that the counter-increment directive is an attribute,
-    not a command. Thus it can be overwritten. */
-
-   div.@{nameOfClass}>div.@{nameOfClass}{
-     counter-increment: dummyCounter;
+   /* When things are nested, don't push them right */
+   .@{nameOfClass} .@{nameOfClass} {
+       padding: 0em;
    }
   
    /* Here we execute loop again for the next entry. */
@@ -92,3 +87,4 @@ We want to stop when the index reaches the end of the list of environments. */
 
 /* This calls the loop with @index set to 1, thus starting the loop. Without this, all the code above would never run. */
 .loop(1);
+

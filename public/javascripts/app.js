@@ -18,8 +18,11 @@ require.config({
     ],
     
     paths: {
-	mathjax: "//cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS_HTML&amp;delayStartupUntil=configured",
+        mathjax: "//cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS_HTML&amp;delayStartupUntil=configured",
+	less: "../../components/less/dist/less.min",
 	"async": "../../components/async/lib/async",
+	"sly": "../../components/sly/dist/sly.min",
+	"isotope": "../../components/isotope/dist/isotope.pkgd.min",
 	"jquery": "../../components/jquery/dist/jquery.min",
 	"jquery-ui": "../../components/jquery-ui/jquery-ui.min",
 	"angular": "../../components/angular/angular",
@@ -70,6 +73,8 @@ require.config({
     shim: {
 	socketio: { exports: 'io' },
 
+	sly: { exports: 'Sly' },
+
 	angular: { exports: 'angular', deps: ['jquery'] },
         "angular-animate": { deps: ['angular'] },
         "angular-sanitize": { deps: ['angular'] },
@@ -79,6 +84,8 @@ require.config({
 	"bootstrap": { deps: ['jquery'] },
 	"bootstrap-datepicker": { deps: ['jquery'] },
 
+        "x-editable": { deps: ['jquery', 'jquery-ui'] },
+	
 	"pagedown-converter": { exports: 'Markdown.Converter', deps: ['bootstrap'] },
 	"pagedown-sanitizer": { exports: 'Markdown.Sanitizer', deps: ['bootstrap', "pagedown-converter"] },
 	"pagedown-editor": { exports: 'Markdown.Editor', deps: ['bootstrap', "pagedown-converter"] },
@@ -101,11 +108,17 @@ require.config({
 	    init: function () {
 		MathJax.Hub.Config(
 		    {
+			// You might think putput/SVG would be better,
+			// but HTML-CSS is needed in order for the
+			// answer input boxes to appear in the most
+			// appropriate places
+			jax: ["input/TeX","output/HTML-CSS"],
+			extensions: ["tex2jax.js","MathMenu.js","MathZoom.js", "CHTML-preview.js"],			
 			showProcessingMessages: false,
 			tex2jax: { inlineMath: [['$', '$'], ['\\(','\\)']],
 				   displayMath: [['$$','$$'], ['\\[','\\]']] },
 			TeX: {
-			    extensions: ["color.js"],
+			    extensions: ["AMSmath.js","AMSsymbols.js","noErrors.js","noUndefined.js", "color.js"],
 			    Macros: {}
 			}
 		    });
@@ -132,12 +145,17 @@ require.config({
 			    var keys = this.GetBrackets(name);
 			    var text = this.GetArgument(name);
 
-			    var input = HTML.Element("input",{type:"text", className:"mathjax-input", style: {width: "160px", marginBottom: "10px", marginTop: "10px" }});
+			    var input = HTML.Element("input",
+						     {type:"text",
+						      className:"mathjax-input",
+						      style: {width: "160px", marginBottom: "10px", marginTop: "10px" }
+						     });
+			    
 			    input.setAttribute("xmlns","http://www.w3.org/1999/xhtml");
 
 			    // the \answer{contents} get placed in a data-answer attribute
 			    input.setAttribute("data-answer", text);			    
-			    
+
 			    // Parse key=value pairs from optional [bracket] into data- attributes
 			    if (keys !== undefined) {
 				keys.split(",").forEach( function(keyvalue) { 
@@ -149,6 +167,7 @@ require.config({
 				    input.setAttribute("data-" + key, value);
 				});
 			    }
+
 			    
 			    var mml = MML["annotation-xml"](MML.xml(input)).With({encoding:"application/xhtml+xml",isToken:true});
 			    this.Push(MML.semantics(mml));			    
@@ -164,8 +183,7 @@ require.config({
 });
 
 
-//require( ["angular", "shCore", "angular-animate", "bootstrap", "directives/mathjax", "directives/video-player", "directives/input-math", "moment", "activity-display", "coding-activity", "matrix-activity", "math-matrix", "shBrushJScript", "shBrushLatex", "mailing-list", "codemirror-python", "sticky-scroll", "score", "free-response", "user", 'angular-strap-tpl', 'popover', "forum", "pagedown-directive", "course", "jquery-ui"], function(angular, shCore) {
-require( ["jquery", "shCore", "mathjax", "database", "bootstrap", "moment", "shBrushJScript", "shBrushLatex", "mailing-list", "codemirror-python", "sticky-scroll", "user", 'popover', "forum", "free-response", "multiple-choice", "math-answer", "problem", "hint"], function($, shCore, MathJax) {
+require( ["jquery", "shCore", "mathjax", "jquery-ui", "less", "database", "bootstrap", "moment", "shBrushJScript", "shBrushLatex", "mailing-list", "codemirror-python", "sticky-scroll", "user/profile", "math-answer", "activity", "score", "progress-bar", "xourse", "navigation"], function($, shCore, MathJax) {
 
     'use strict';
 
@@ -177,29 +195,13 @@ require( ["jquery", "shCore", "mathjax", "database", "bootstrap", "moment", "shB
 
     $(document).ready(function() {
 	shCore.SyntaxHighlighter.highlight();
+	
 	$(".dropdown-toggle").dropdown();
-
-	// The "end process" hook is run if we end up reprocessing the math on the page, such as during a live popover
-	var firstTime = true;
-	MathJax.Hub.Register.MessageHook( "End Process", function(message) {
-	    if (firstTime) {
-		$(".mathjax-input").mathAnswer();
-		firstTime = false;
-	    }
-	});
-
+	
 	// This could go in "init" above, but it needs to be after teh end process hook
 	MathJax.Hub.Startup.onload();
 
-	$(".problem-environment").problemEnvironment();
-	
-	$(".mathjax-input").mathAnswer();	
-	$(".multiple-choice").multipleChoice();
-	$(".hint").hint();
-	$(".free-response").freeResponse();
+	$(".activity").activity();
     });
 
-    if (document.location.pathname.match( /^\/course/ ))
-	require([document.location.pathname + '.js']);
-	
 });

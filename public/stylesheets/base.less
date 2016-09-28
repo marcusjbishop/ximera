@@ -1,11 +1,6 @@
 
 @import 'bootstrap';
 
-/* Cloak the {{angular}} stuff */
-[ng\:cloak], [ng-cloak], [data-ng-cloak], [x-ng-cloak], .ng-cloak, .x-ng-cloak {
-    display: none !important;
-}
-
 /*****************************************************************/
 /* Use mathjax fonts for body text... or not, since it is so ugly. */
 
@@ -242,12 +237,10 @@
   }
 }
 
-// TODO: Fix?  This was breaking x-editable.
-/*
+// TODO: Fix?
 .form-inline {
   margin-bottom:-0.8em;
 }
-*/
 
 .form-inline .input-group input {
     min-width:8em;
@@ -665,8 +658,7 @@ footer .address a {
 
 /*****************************************************************/
 /* x-editable styles */
-
-@import "../../components/x-editable/dist/bootstrap3-editable/css/bootstrap-editable.css";
+@import "../../components/x-editable/dist/bootstrap-editable/css/bootstrap-editable.css";
 
 /*****************************************************************/
 /* codemirror CSS */
@@ -743,7 +735,12 @@ tell theorems.less about it and choose the background color. */
 }
 
 .navbar-progress-bar .completion-meter {
-  width: 144pt;
+  width: 100pt;
+}
+
+/* Default to hidden unless we have some progress to display */
+.navbar-progress-bar {
+    display: none;
 }
 
 /* Fixing the size of images */
@@ -767,9 +764,13 @@ tell theorems.less about it and choose the background color. */
   margin-bottom:2em;
 }
 
-/***********************************************************/
-/* The styling for itemize
+/****************************************************************/
+/* Xarma and xudos are hidden by default */
 
-ul{
- padding-left: 1em;
+li.xarma {
+    display: none;
+}
+
+li.xudos {
+    display: none;
 }

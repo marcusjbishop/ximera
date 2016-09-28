@@ -1,6 +1,6 @@
-define(['jquery', 'underscore', 'popover', 'math-expressions', 'database'], function($, _, popover, Expression){
+define(['jquery', 'underscore', 'popover', 'math-expressions', 'tincan', 'database'], function($, _, popover, Expression, TinCan){
 
-    var template = '<form class="form-inline" style="display: inline-block;">' +
+    var template = '<form class="form-inline mathjaxed-input" style="display: inline-block;">' +
 	'<span class="input-group">' +
    	  '<input class="form-control" type="text"/>' +
 	  '<span class="input-group-btn">' +
@@ -59,14 +59,14 @@ define(['jquery', 'underscore', 'popover', 'math-expressions', 'database'], func
 	
 	// When the database changes, update the box
 	result.persistentData( function(event) {
-	    if ('response' in event.data) {
-		if ($(inputBox).val() != event.data.response )
-		    $(inputBox).val( event.data.response );
+	    if (result.persistentData('response')) {
+		if ($(inputBox).val() != result.persistentData('response'))
+		    $(inputBox).val( result.persistentData('response'));
 	    } else {
 		$(inputBox).val( '' );
 	    }
-	    
-	    if (event.data['correct']) {
+
+	    if (result.persistentData('correct')) {
 		result.find('.btn-ximera-correct').show();
 		result.find('.btn-ximera-incorrect').hide();
 		result.find('.btn-ximera-submit').hide();
@@ -76,7 +76,8 @@ define(['jquery', 'underscore', 'popover', 'math-expressions', 'database'], func
 		inputBox.prop( 'disabled', false );
 		result.find('.btn').hide();
 
-		if ((event.data['attempt'] == event.data['response']) && ('response' in event.data))
+		if ((result.persistentData('response') == result.persistentData('attempt')) &&
+		    (result.persistentData('response')))
 		    result.find('.btn-ximera-incorrect').show();
 		else
 		    result.find('.btn-ximera-submit').show();
@@ -89,22 +90,51 @@ define(['jquery', 'underscore', 'popover', 'math-expressions', 'database'], func
 	});
 
 	result.find( ".btn-ximera-incorrect" ).click( function() {
-	    result.find( ".btn-ximera-submit" ).click();	    
+	    result.find( ".btn-ximera-submit" ).click();
+	    return false;
 	});
 	
 	result.find( ".btn-ximera-submit" ).click( function() {
 	    var correctAnswerText = result.attr('data-answer');
-	    var correctAnswer = Expression.fromText(correctAnswerText);
+	    var correctAnswer;
 	    
-	    var studentAnswer = Expression.fromText( inputBox.val() );
+	    correctAnswer = Expression.fromText(correctAnswerText);
 
-	    if (studentAnswer.equals( correctAnswer )) {
-		result.persistentData( 'correct', true );
-		result.trigger( 'ximera:correct' );
-	    } else {
-		result.persistentData( 'correct', false );
-		result.persistentData( 'attempt', inputBox.val() );
+	    var studentAnswer;
+	    
+	    try {
+		var studentAnswerText = inputBox.val();
+		studentAnswer = Expression.fromText( studentAnswerText );
+	    } catch (err) {
+		studentAnswer = Expression.fromText( "sqrt(-1)" );
 	    }
+	    
+	    var tolerance = result.attr('data-tolerance');
+	    
+	    if (tolerance) {
+		tolerance = parseFloat(tolerance);
+
+		var correctAnswerFloat = correctAnswer.evaluate({});
+		var studentAnswerFloat = studentAnswer.evaluate({});
+
+		result.persistentData( 'correct',
+				       (Math.abs(correctAnswerFloat - studentAnswerFloat) <= tolerance) );
+		result.persistentData( 'attempt', inputBox.val() );
+
+		if (result.persistentData( 'correct' ))
+		    result.trigger( 'ximera:correct' );
+	    } else {
+		if (studentAnswer.equals( correctAnswer )) {
+		    result.persistentData( 'correct', true );
+		    result.trigger( 'ximera:correct' );
+		} else {
+		    result.persistentData( 'correct', false );
+		    result.persistentData( 'attempt', inputBox.val() );
+		}
+	    }
+
+	    TinCan.answer( result, { response: result.persistentData('response'),
+				     success: result.persistentData('correct') } );
 	    
 	    return false;
 	});
