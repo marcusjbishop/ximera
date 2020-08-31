@@ -1,68 +1,41 @@
 var Grid = require('gridfs-stream');
 var mongoose = require('mongoose');
 var fstream = require('fstream');
+var config = require('./config');
 var fs = require("fs");
 var winston = require("winston");
 var _ = require("underscore");
-var mubsub = require('mubsub');
 
 exports = module.exports;
 
 var ObjectId = mongoose.Schema.ObjectId;
 var Mixed = mongoose.Schema.Types.Mixed;
 
-var url = 'mongodb://' + process.env.XIMERA_MONGO_URL + "/" +
-                 process.env.XIMERA_MONGO_DATABASE;
+var url = 'mongodb://' + config.mongodb.url + "/" + config.mongodb.database;
 
-mongoose.connect(url, function (error) {
-    var client = mubsub(mongoose.connection.db);
-    exports.channel = client.channel('github');
-    exports.gradebook = client.channel('gradebook');
-    exports.gfs = Grid(mongoose.connection.db, mongoose.mongo);
-});
+exports.mongoose = mongoose;
 
 // Notice this is different from Schema.ObjectId; Schema.ObjectId if for passing
 // models/schemas, Types.ObjectId is for generating ObjectIds.
 exports.ObjectId = mongoose.Types.ObjectId;
 
 // TODO: Add appropriate indexes.
-exports.initialize = function initialize() {
+exports.initialize = function initialize(callback) {
     winston.info("Initializing Mongo");
 
-    exports.GitRepo = mongoose.model("GitRepo",
-                                     {
-                                         // Key
-                                         gitIdentifier: String,
-                                         // Other
-                                         file: ObjectId,
-                                         needsUpdate: Boolean,
-					 feedback: String,
-                                         currentActivities: [ObjectId]
-                                     });
-
-    exports.Activity = mongoose.model("Activity",
-                                      {
-                                          // Key
-                                          repo: {type: ObjectId, ref:"GitRepo"},
-                                          relativePath: String,
-                                          baseFileHash: {type: String, index: true},
-                                          // Other
-                                          htmlFile: ObjectId,
-                                          latexSource: String,
-                                          description: String,
-                                          title: String,
-                                          recent: Boolean,
-                                          slug: String,
-                                          timeLastUsed: {type: Date, index: true}
-                                      });
-
-    exports.User = mongoose.model("User",
+    var UserSchema = new mongoose.Schema(
                                   {
                                       googleOpenId: {type: String, index: true, unique: true, sparse: true},
                                       courseraOAuthId: {type: String, index: true, unique: true, sparse: true},
+                                      twitterOAuthId: {type: String, index: true, unique: true, sparse: true},				      
                                       ltiId: {type: String, index: true, unique: true, sparse: true},
+                                      githubId: {type: String, index: true, unique: true, sparse: true},
+                                      githubAccessToken: {type: String},
+				      replacedBy: {type: ObjectId, ref:"User"},
 				      course: String,
 				      superuser: Boolean,
+				      username: {type: String, index: true, unique: true, sparse: true},
+				      password: String,				      
                                       name: String,
                                       email: String,
 				      displayName: String,
@@ -72,203 +45,113 @@ exports.initialize = function initialize() {
 				      biography: String,
 				      xudos: Number,
 				      xarma: Number,
+				      imageUrl: String,
+				      profileViews: Number,
 				      userAgent: String,
+				      visibility: String,
 				      remoteAddress: String,
                                       isGuest: Boolean,
+                                      isAuthor: Boolean, // BADBAD: this is just for fun -- it's not used anywhere
+				      instructorRepositoryPaths: [String],				      
                                       lastUrlVisited: String,
-                                      isInstructor: Boolean
+				      lastSeen: Date,
+				      instructor: Mixed,
+                                      apiKey: {type: String, index: true, unique: true, sparse: true},				      
+                                      apiSecret: String				      
                                   });
+    UserSchema.index( { lastSeen: -1 } );
+    
+    exports.User = mongoose.model("User", UserSchema);
 
-    exports.Scope = mongoose.model("Scope",
+    exports.LtiBridge = mongoose.model("LtiBridge",
+                                       new mongoose.Schema({
+					   ltiId: {type: String, index: true},
+					   
+					   toolConsumerInstanceGuid: {type: String, index: true},
+					   toolConsumerInstanceName: String,
+					   
+					   contextId: {type: String, index: true},
+					   contextLabel: String,
+					   contextTitle: String,
+					   
+					   resourceLinkId: String,
+                                           dueDate: Date,
+                                           untilDate: Date,
+					   pointsPossible: Number,
+
+					   resultScore: Number,
+					   resultTotalScore: Number,
+					   submittedScore: Boolean,
+					   
+					   oauthConsumerKey: String,
+					   oauthSignatureMethod: String,
+					   lisResultSourcedid: String,
+					   lisOutcomeServiceUrl: String,
+
+					   instructionalStaff: {type: Boolean, index: true},
+					   
+					   repository: {type: String, index: true},
+					   path: {type: String, index: true},					   
+					   
+					   user: {type: ObjectId, index: true, ref:"User"},
+					   roles: [String]
+                                       }, {
+					   minimize: false
+                                       }));
+        
+    exports.State = mongoose.model("State",
                                    new mongoose.Schema({
-                                       activity: ObjectId,
-                                       user: ObjectId,
-                                       dataByUuid: Mixed
+                                       activityHash: {type: String, index: true},
+                                       user: {type: ObjectId, index: true, ref:"User"},
+                                       data: Mixed
                                    }, {
                                        minimize: false
-                                   }));
-
-    exports.Post = mongoose.model("Post",
-                                   new mongoose.Schema({
-                                       room: {type: String, index: true},
-				       content: String,
-				       user: Mixed,
-				       date: {type: Date, index: true},
-				       parent: ObjectId,
-				       upvoters: Mixed,
-				       upvotes: Number,
-				       flaggers: Mixed,
-				       flags: Number,
-				   }, {
-                                       minimize: false
-                                   }));
-
-
-    // Activity completion is updated to most recent version; completion log is write-only.
-    activityCompletionSchema = new mongoose.Schema({
-        activitySlug: String,
-        user: {type: ObjectId, index: true},
-        activity: ObjectId, // Most recent version.
-        percentDone: Number, // Percent complete of most recent version.
-	numParts: Number,
-	numComplete: Number,
-        completeUuids: [String],
-        complete: Boolean,
-        completeTime: Date
-    });
-    exports.CompletionLog = mongoose.model("CompletionLog", activityCompletionSchema);
-    activityCompletionSchema.index({activitySlug: 1, user: 1}, {unique: true});
-    exports.ActivityCompletion = mongoose.model("ActivityCompletion", activityCompletionSchema);
-
-    answerLogSchema = new mongoose.Schema({
-        activity: ObjectId,
-        user: ObjectId,
-        questionPartUuid: String,
-        value: String,
-        correct: Boolean,
-        timestamp: Date
-    });
-    answerLogSchema.index({activity: 1, user: 1});
-    answerLogSchema.index({user: 1, timestamp: 1});
-    exports.AnswerLog = mongoose.model("AnswerLog", answerLogSchema);
-
-    var CourseSchema = new mongoose.Schema ({
-        // Key
-        repo: ObjectId,
-        relativePath: String,
-        // Other
-        name: String,
-        description: String,
-	slug: {type: String, index: true},
-        activityTree: Mixed
-    });
-
-    RegExp.escape= function(s) {
-	return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    };
-
-    CourseSchema.methods.normalizeSlug = function normalizeActivitySlug(activitySlug) {
-	var repo = this.slug.split('/').slice(0,2).join( '/' )
-	var re = new RegExp("^" + RegExp.escape(repo) + '\\/');
-	return activitySlug.replace( ":", '/' ).replace( re, '' );
-    };
-
-    CourseSchema.methods.activityURL = function activityURL(activity) {
-	return "/course/" + this.slug + "/activity/" + this.normalizeSlug(activity.slug) + "/";
-    };
+                                   }));    
     
-    CourseSchema.methods.flattenedActivities = function flattenedActivities() {
-	var queue = [];
+    exports.Completion = mongoose.model("Completion",
+					new mongoose.Schema({
+					    // The new method for storing completions
+					    activityPath: {type: String, index: true},
+					    repositoryName: {type: String, index: true},
 
-	var f = function(nodes) {
-	    for(var i = 0; i < nodes.length; i++) {
-		queue.push( nodes[i] );
-		f(nodes[i].children);
-	    }
-	};
-	
-	f(this.activityTree);
+					    // The old method for storing completions
+					    activityHash: {type: String, index: true},
+					    
+					    user: {type: ObjectId, index: true, ref:"User"},
+					    complete: Number,
+                                            date: Date
+					}, {
+					    minimize: false
+					}));
 
-	return queue;
-    };
+    exports.Label = mongoose.model("Label",
+					new mongoose.Schema({
+					    activityHash: {type: String, index: true},
+					    commit: {type: String, index: true},					    
+					    label: {type: String, index: true},
+					}, {
+					    minimize: false
+					}));
 
-    CourseSchema.methods.previousActivity = function previousActivities(activity) {
-	var flattened = this.flattenedActivities();
+    exports.AccessToken = mongoose.model("AccessToken",
+				       new mongoose.Schema({
+					   keyid: {type: String, index: true},
+					   token: {type: String, index: true}
+				       }));
 
-	activity = _.find( flattened, function(x) { return x.slug === activity.slug } );
-	if (activity === undefined)
-	    return null;
+    exports.KeyAndSecret = mongoose.model("KeyAndSecret",
+					  new mongoose.Schema({
+					      keyid: {type: String, index: true},
+					      ltiKey: {type: String, index: true},
+					      ltiSecret: String,
+					      encryptedSecret: String
+					  }));
 
-	var i = _.indexOf( flattened, activity );
-
-	if (i <= 0)
-	    return null;
-
-	return flattened[i-1];
-    };
-
-    CourseSchema.methods.nextActivity = function nextActivities(activity) {
-	var flattened = this.flattenedActivities();
-
-	activity = _.find( flattened, function(x) { return x.slug === activity.slug } );
-	if (activity === undefined)
-	    return null;
-
-	var i = _.indexOf( flattened, activity );
-
-	if (i + 1 < flattened.length)
-	    return flattened[i+1];
-
-	return null;
-    };
-
-    CourseSchema.methods.activityParent = function activityParent(activity) {
-	var f = function(nodes) {
-	    for(var i = 0; i < nodes.length; i++) {
-		var result = f(nodes[i].children);
-		if (result) return result;
-
-		if (_.where( nodes[i].children, {slug: activity.slug} ).length > 0) {
-		    return nodes[i];
-		}
-	    }
-
-	    return null;
-	};
-
-	return f(this.activityTree);
-    };
-
-    CourseSchema.methods.activityChildren = function activityChildren(activity) {
-	var flattened = this.flattenedActivities();
-
-	activity = _.find( flattened, function(x) { return x.slug === activity.slug } );
-	if (activity === undefined)
-	    return [];
-
-	return activity.children;
-    };
-
-    CourseSchema.methods.activitySiblings = function activitySiblings(activity) {
-	var parent = this.activityParent(activity);
-
-	if (parent)
-	    return parent.children;
-
-	return this.activityTree;
-    };
-
-    exports.Course = mongoose.model('Course', CourseSchema );
-
-    exports.GitRepo.find({}, function (err, repos) {
-	if (repos.length == 0) {
-	    var testRepo = new exports.GitRepo({
-		gitIdentifier: "kisonecat/git-pull-test",
-		file: mongoose.Types.ObjectId()
-	    });
-	    testRepo.save(function () {});
-	}
+    
+    //mongoose.set('debug', true);    
+    
+    mongoose.connect(url, {}, function (err) {
+	callback(err);
     });
-}
+};
 
-exports.copyLocalFileToGfs = function (path, fileId, callback) {
-	var locals = {pipeErr: false};
-	read = fs.createReadStream(path);
-    write = exports.gfs.createWriteStream({
-        _id: fileId,
-        mode: 'w'
-    });
-    write.on('error', function (err) {
-        locals.pipeErr = true;
-    });
-    write.on('close', function (file) {
-        if (locals.pipeErr) {
-            callback("Unknown error saving archive.");
-        }
-        else {
-            winston.info("GFS file written.")
-            callback();
-        }
-    });
-    read.pipe(write);
-}

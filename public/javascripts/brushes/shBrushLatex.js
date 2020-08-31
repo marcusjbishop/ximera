@@ -4,24 +4,33 @@
  * some code from Gheorghe Milas and Ahmad Sherif
  */
 
-define(['shCore'], function (shCore) {
-    var SyntaxHighlighter = shCore.SyntaxHighlighter;
+var BrushBase = require('brush-base');
+var regexLib = require('syntaxhighlighter-regex').commonRegExp;
 
-    function Brush()
-    {
-	var keywords =  'break continue case return in eq ne gt lt ge le';
+function Brush() {
+    var keywords =  'break continue case return in eq ne gt lt ge le';
 	
-	this.regexList = [
-	    { regex: new RegExp('%.*','gm'),		css: 'comments' },		// one line comments
-	    { regex: SyntaxHighlighter.regexLib.doubleQuotedString,			css: 'string' },		// double quoted strings
-	    { regex: new RegExp('\\\\\\w*','gm'),			css: 'keyword' },		// commands
-	    { regex: new RegExp('\\$[^\\$]+\\$','gm'),			css: 'color2' },		// commands
-	    { regex: new RegExp(this.getKeywords(keywords), 'gm'),			css: 'function' },		// keywords
-	    ];
-	};
+    this.regexList = [
+	// one line comments
+	{ regex: new RegExp('%.*','gm'),
+	  css: 'comments' },
+	// double quoted strings	
+	{ regex: regexLib.doubleQuotedString,
+	  css: 'string' },
+	// commands
+	{ regex: new RegExp('\\\\\\w*','gm'),
+	  css: 'keyword' },
+	// commands	
+	{ regex: new RegExp('\\$[^\\$]+\\$','gm'),
+	  css: 'color2' },
+	// keywords	
+	{ regex: new RegExp(this.getKeywords(keywords), 'gm'),
+	  css: 'function' },
+    ];
 
-    Brush.prototype	= new SyntaxHighlighter.Highlighter();
-    Brush.aliases	= ['tex', 'latex', 'LaTeX', 'TeX'];
-    
-    SyntaxHighlighter.brushes.Latex = Brush;
-});
+  this.forHtmlScript(regexLib.scriptScriptTags);    
+}
+
+Brush.prototype	= new BrushBase();
+Brush.aliases	= ['tex', 'latex', 'LaTeX', 'TeX'];
+module.exports = Brush;

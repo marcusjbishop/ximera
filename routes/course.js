@@ -1,236 +1,125 @@
 var mdb = require('../mdb'),
-    remember = require('../remember'),
     async = require('async'),
+    _ = require('underscore'),    
+    path = require('path'),
+    dirname = require('path').dirname,
+    normalize = require('path').normalize,    
+    extname = require('path').extname,
+    pathJoin = require('path').join,
     winston = require('winston');
 
-exports.index = function(req, res) {
-    remember(req);
-    mdb.Course.find({}, function (err, courses) {
-	res.render('course/index', { courses: courses });
-    });
-}
+exports.getLabel = function(req, res) {
+    var commit = req.params.commit;
+    var labelName = req.params.label;
 
-exports.landing = function(req, res) {
-    remember(req);
-
-    var slug = req.params[0];
-
-    mdb.Course.findOne({slug: slug}).exec( function (err, course) {
-	if (course) {
-	    mdb.GitRepo.findOne({_id: course.repo}).exec( function (err, repo) {
-		if (repo) {
-		    res.render('course/landing', { course: course, repo: repo });
-		} else {
-		    res.send("Repo not found.");
+    mdb.Label.findOne({label: labelName, commit: commit}).exec( function( err, label ) {
+	if (!label) {
+	    res.status(500).send(err);
+	} else {
+	    mdb.Activity.findOne({hash: label.activityHash, commit: commit}).exec( function( err, activity ) {
+		if (!activity) {
+		    res.status(500).send(err);
+		} else  {
+		    res.json( activity );
 		}
 	    });
-	} else {
-	    res.send("Course not found.");
 	}
     });
+};
+
+function statistics( req, res, model )
+{
+    var commit = req.params.commit;
+    var hash = req.params.hash;
+
+    // Verify that the user is an instructor for that given commit
+    //if (('user' in req) && (req.user.instructor.indexOf(commit) > 0)) {
+    if (('user' in req) && (req.user.isAuthor)) {
+	// Verify that the hash belongs to the given commit
+	mdb.Activity.findOne({hash: hash, commit: commit}).exec( function( err, activity ) {
+	    if (err || (!activity)) {
+		res.status(500).send(err);
+	    } else {
+		// Send answers statistics to instructor
+		model.findOne({_id : hash}).exec( function( err, answers ) {
+		    if (err)
+			res.status(500).send(err);
+		    else {
+			if (answers)
+			    res.json( answers.value );
+			else
+			    res.json( {} );
+		    }
+		});
+	    }
+	});
+    } else {
+	res.sendStatus(403);
+    }    
 }
 
-function findCourseAndActivityBySlugs(user, courseSlug, activitySlug, callback) {
-    var locals = {course: null, activity: null};
-    async.series([
-        function (callback) {
-            mdb.Course.findOne({slug: courseSlug}).exec(function(err, course) {
-                locals.course = course;
-                callback();
-            });
-        },
-        function (callback) {
-            // Get activities for slug with most recent first.
-	    mdb.Activity.find({slug: activitySlug}).sort({timeLastUsed: -1}).exec( function (err, activities) {
-                locals.activities = activities;
-                callback();
-            });
-        },
-        function (callback) {
-            // Find most recent activity version for which this user has scope.
-            if (locals.activities) {
-                async.eachSeries(locals.activities, function (activity, callback) {
-                    if (!locals.activity) {
-                        mdb.Scope.findOne({activity: activity._id, user: user._id}, function (err, scope) {
-                            if (scope) {
-                                locals.activity = activity;
-                            }
-                            callback();
-                        });
-                    }
-                    else {
-                        callback();
-                    }
-                }, callback);
-            }
-            else {
-                callback();
-            }
-        },
-        function (callback) {
-            // If no scope for any version, default to most recent.
-            if (!locals.activity && locals.activities.length > 0) {
-                locals.activity = locals.activities[0];
-            }
-            callback();
-        }
+exports.answers = function(req, res) { return statistics( req, res, mdb.Answers ); };
 
-    ],
-    function () {
-        callback(locals.course, locals.activity);
-    });
-}
+exports.successes = function(req, res) { return statistics( req, res, mdb.Successes ); };
 
-function getActivityHtml(activity, callback) {
-    var accum = "";
-    var readStream = mdb.gfs.createReadStream({_id: activity.htmlFile});
-    readStream.on('data', function (data) {
-	accum += data;
-    });
-    readStream.on('end', function () {
-        callback(accum);
-    });
-}
-
-// Update to most recent version of activity.
-exports.activityUpdate = function(req, res) {
-    var courseSlug = req.params[0];
-    var activitySlug = req.params[1];
-
-    if (!activitySlug.match( ':' )) {
-	var repo = courseSlug.split('/').slice(0,2).join( '/' )
-	activitySlug = repo + ':' + activitySlug;
+exports.progress = function(req, res) {
+    var username = req.params.username;
+    var reponame = req.params.repository;
+    var course = username + "/" + reponame;
+    
+    if ( (!(req.user)) || !(req.user.instructor) ) {
+	res.sendStatus(403);
+	return;
     }
+    
+    mdb.Gradebook.findOne({_id: course}).exec( function(err,gradebook) {
+	if (err)
+	    res.status(500).send(err);
+	else {
+	    var header = [];
+	    var rows = {};
 
-    var locals = {};
-
-    async.series([
-        function (callback) {
-            mdb.Activity.findOne({recent: true, slug: activitySlug}, function (err, activity) {
-                locals.activity = activity;
-                callback();
-            });
-        },
-        function (callback) {
-            if (locals.activity) {
-                mdb.Scope.findOne({activity: locals.activity._id, user: req.user}, function (err, scope) {
-                    if (!scope) {
-                        // Need to create new scope for most recent version.
-                        var newScope = new mdb.Scope({activity: locals.activity._id, user: req.user._id, dataByUuid: null});
-                        newScope.save(callback);
-                    }
-                    else {
-                        callback();
-                    }
-                });
-            }
-            else {
-                res.status(500).send("Could not find activity.");
-                callback("Could not find activity.");
-            }
-        },
-        function (callback) {
-            res.redirect('..');
-            callback();
-        }]);
-}
-
-exports.activity = function(req, res) {
-    remember(req);
-    var courseSlug = req.params[0];
-    var activitySlug = req.params[1];
-
-    if (!activitySlug.match( ':' )) {
-	var repo = courseSlug.split('/').slice(0,2).join( '/' )
-	activitySlug = repo + ':' + activitySlug;
-    }
-
-    var locals = {};
-
-    async.series([
-        function (callback) {
-            findCourseAndActivityBySlugs(req.user, courseSlug, activitySlug, function (course, activity) {
-                locals.course = course;
-                locals.activity = activity;
-                if (!course) {
-                    callback("Course not found.");
-                }
-                else if (!activity) {
-                    callback("Activity not found.");
-                }
-                else {
-                    callback();
-                }
-            });
-        },
-        function (callback) {
-            getActivityHtml(locals.activity, function(html) {
-                locals.activityHtml = html;
-                if (!html) {
-                    res.send('Error reading activity.');
-                }
-                else {
-                    callback();
-                }
-            });
-        },
-        function (callback) {
-	    //var parentActivity = locals.course.activityParent(locals.activity);
-	    var nextActivity = locals.course.nextActivity(locals.activity);
-	    var previousActivity = locals.course.previousActivity(locals.activity);
-	    res.render('course/activity',
-		       { activity: locals.activity, activityHtml: locals.activityHtml,
-			 course: locals.course,
-			 nextActivity: nextActivity, previousActivity: previousActivity,
-			 activityId: locals.activity._id.toString()
-		       });
-        }
-    ],
-    function (err) {
-        if (err) {
-            res.send(err);
-        }
+	    // Verify that the user is an instructor for a commit that
+	    // appeared in the course
+	    if (_.intersection( req.user.instructor, gradebook.commits ).length == 0) {
+		console.log(" noope.");
+		res.sendStatus(403);
+	    } else {
+		gradebook.users.forEach( function(user) {
+		    var name = user.user;
+		    rows[name] = [];
+		    user.paths.forEach( function(path) {
+			var complete = path.complete;		    
+			var path = path.path;
+			
+			if (header.indexOf(path) < 0)
+			    header.push(path);
+			rows[name][header.indexOf(path)] = complete;
+		    });
+		});
+		
+		var csv = "name,";
+		
+		header.forEach( function(h) {
+		    csv = csv + h + ",";
+		});
+		
+		csv = csv + "\n";
+		
+		gradebook.users.forEach( function(user) {
+		    var name = user.user;
+		    csv = csv + name + ",";
+		    rows[name].forEach( function(r) {
+			csv = csv + r + ",";		    
+		    });
+		    csv = csv + "\n";
+		});
+		
+		res.setHeader('Content-disposition', 'attachment; filename=' + reponame + '.csv');
+		res.set('Content-Type', 'text/csv');
+		res.status(200).send(csv);
+	    }
+	}
     });
 };
 
-exports.activitySource = function(req, res) {
-    remember(req);
-
-    var courseSlug = req.params[0];
-    var activitySlug = req.params[1];
-
-    if (!activitySlug.match( ':' )) {
-	var repo = courseSlug.split('/').slice(0,2).join( '/' )
-	activitySlug = repo + ':' + activitySlug;
-    }
-
-    var locals = {};
-
-    async.series([
-        function (callback) {
-            findCourseAndActivityBySlugs(req.user, courseSlug, activitySlug, function (course, activity) {
-                locals.course = course;
-                locals.activity = activity;
-                if (!course) {
-                    res.send("Course not found.");
-                }
-                if (!activity) {
-                    res.send("Activity not found.");
-                }
-                callback();
-            });
-        },
-        function (callback) {
-            getActivityHtml(locals.activity, function(html) {
-                locals.activityHtml = html;
-                if (!html) {
-                    res.send('Error reading activity.');
-                }
-                callback();
-            });
-        },
-        function (callback) {
-            res.render('activity-source', { activity: locals.activity, activityId: locals.activity._id });
-        }
-    ]);
-};
